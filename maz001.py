@@ -2,7 +2,8 @@ import pygame
 import sys
 import copy
 import random
-from random import randint
+import time
+from collections import deque
 
 class ArestasFechadas:
     def __init__(self, superior, inferior, esquerda, direita):
@@ -20,27 +21,28 @@ class Celula:
         self.corAberta = corAberta
         self.visited = visitada
         self.aberta = aberta
-        self.caminho = False  # NOVO: marca se faz parte da solução
 
     def desenhar(self, tela, x, y, aresta):
-        if self.caminho:
-            pygame.draw.rect(tela, (255, 255, 0), (x, y, aresta, aresta))  # Amarelo = caminho
-        elif self.aberta:
+        if self.aberta:
             pygame.draw.rect(tela, self.corAberta, (x, y, aresta, aresta))
         else:
             pygame.draw.rect(tela, self.corPreenchimento, (x, y, aresta, aresta))
 
-        pygame.draw.line(tela, self.corLinha, (x, y), (x + aresta, y))
-        pygame.draw.line(tela, self.corLinha, (x, y + aresta), (x + aresta, y + aresta))
-        pygame.draw.line(tela, self.corLinha, (x, y), (x, y + aresta))
-        pygame.draw.line(tela, self.corLinha, (x + aresta, y), (x + aresta, y + aresta))
+        if self.arestasFechadas.superior:
+            pygame.draw.line(tela, self.corLinha, (x, y), (x + aresta, y))
+        if self.arestasFechadas.inferior:
+            pygame.draw.line(tela, self.corLinha, (x, y + aresta), (x + aresta, y + aresta))
+        if self.arestasFechadas.esquerda:
+            pygame.draw.line(tela, self.corLinha, (x, y), (x, y + aresta))
+        if self.arestasFechadas.direita:
+            pygame.draw.line(tela, self.corLinha, (x + aresta, y), (x + aresta, y + aresta))
 
 class AldousBroder:
     def __init__(self, qtLinhas, qtColunas, aresta, celulaPadrao):
-        self.matriz = Malha(qtLinhas, qtColunas, aresta, celulaPadrao)
         self.qtLinhas = qtLinhas
         self.qtColunas = qtColunas
         self.aresta = aresta
+        self.matriz = Malha(qtLinhas, qtColunas, aresta, celulaPadrao)
         self.celulaPadrao = celulaPadrao
 
     def resetaLabirinto(self):
@@ -48,85 +50,96 @@ class AldousBroder:
             for coluna in range(self.qtColunas):
                 self.matriz[linha][coluna] = copy.deepcopy(self.celulaPadrao)
 
-    def SorteiaCelulaVizinha(self, linhaCelulaAtual, colunaCelulaAtual):
-        encontrou = False
-        while not encontrou:
-            direcao = random.choice([(0,1), (0,-1), (1,0), (-1,0)])  # apenas ortogonais
-            linhaVizinha = linhaCelulaAtual + direcao[0]
-            colunaVizinha = colunaCelulaAtual + direcao[1]
-            if 0 <= linhaVizinha < self.qtLinhas and 0 <= colunaVizinha < self.qtColunas:
-                encontrou = True
-        return linhaVizinha, colunaVizinha
+    def sorteia_celula_vizinha(self, linha, coluna):
+        direcoes = [(0, -1), (0, 1), (-1, 0), (1, 0)]
+        random.shuffle(direcoes)
+        for dl, dc in direcoes:
+            nl, nc = linha + dl, coluna + dc
+            if 0 <= nl < self.qtLinhas and 0 <= nc < self.qtColunas:
+                return nl, nc
+        return linha, coluna
 
-    def GeraLabirinto(self):
+    def gera_labirinto(self):
         self.resetaLabirinto()
         unvisitedCells = self.qtLinhas * self.qtColunas
-
-        currentCellLine = randint(0, self.qtLinhas - 1)
-        currentCellColumn = randint(0, self.qtColunas - 1)
+        currentLine = random.randint(0, self.qtLinhas - 1)
+        currentCol = random.randint(0, self.qtColunas - 1)
+        self.matriz[currentLine][currentCol].visited = True
+        unvisitedCells -= 1
 
         while unvisitedCells > 0:
-            neighCellLine, neighCellColumn = self.SorteiaCelulaVizinha(currentCellLine, currentCellColumn)
+            neighLine, neighCol = self.sorteia_celula_vizinha(currentLine, currentCol)
+            if not self.matriz[neighLine][neighCol].visited:
+                if neighLine < currentLine:
+                    self.matriz[currentLine][currentCol].arestasFechadas.superior = False
+                    self.matriz[neighLine][neighCol].arestasFechadas.inferior = False
+                elif neighLine > currentLine:
+                    self.matriz[currentLine][currentCol].arestasFechadas.inferior = False
+                    self.matriz[neighLine][neighCol].arestasFechadas.superior = False
+                elif neighCol < currentCol:
+                    self.matriz[currentLine][currentCol].arestasFechadas.esquerda = False
+                    self.matriz[neighLine][neighCol].arestasFechadas.direita = False
+                elif neighCol > currentCol:
+                    self.matriz[currentLine][currentCol].arestasFechadas.direita = False
+                    self.matriz[neighLine][neighCol].arestasFechadas.esquerda = False
 
-            if not self.matriz[neighCellLine][neighCellColumn].visited:
-                self.matriz[currentCellLine][currentCellColumn].aberta = True
-                self.matriz[neighCellLine][neighCellColumn].visited = True
+                self.matriz[neighLine][neighCol].visited = True
                 unvisitedCells -= 1
 
-            currentCellLine, currentCellColumn = neighCellLine, neighCellColumn
+            currentLine, currentCol = neighLine, neighCol
 
-        # Garante entrada e saída
-        self.matriz[1][0].aberta = True
-        self.matriz[1][0].visited = True
-        self.matriz[1][0].corAberta = (0, 255, 0)  # Verde
+        self.matriz[1][0].arestasFechadas.esquerda = False
+        self.matriz[self.qtLinhas - 1][self.qtColunas - 1].arestasFechadas.inferior = False
 
-        self.matriz[self.qtLinhas - 1][self.qtColunas - 1].aberta = True
-        self.matriz[self.qtLinhas - 1][self.qtColunas - 1].visited = True
-        self.matriz[self.qtLinhas - 1][self.qtColunas - 1].corAberta = (255, 0, 0)  # Vermelho
+    def resolver_bfs(self, linha, coluna, destinoL, destinoC):
+        inicio = time.time()
 
-    def ResolveLabirinto(self):
-        destino = (self.qtLinhas - 1, self.qtColunas - 1)
+        fila = deque()
+        fila.append((linha, coluna))
+        visitados = set()
+        pais = {}
+
+        while fila:
+            atualL, atualC = fila.popleft()
+            if (atualL, atualC) == (destinoL, destinoC):
+                break
+
+            visitados.add((atualL, atualC))
+            atual = self.matriz[atualL][atualC]
+
+            direcoes = [(-1, 0, "superior"), (1, 0, "inferior"), (0, -1, "esquerda"), (0, 1, "direita")]
+
+            for dl, dc, direcao in direcoes:
+                nl, nc = atualL + dl, atualC + dc
+                if 0 <= nl < self.qtLinhas and 0 <= nc < self.qtColunas:
+                    if not getattr(atual.arestasFechadas, direcao) and (nl, nc) not in visitados:
+                        fila.append((nl, nc))
+                        visitados.add((nl, nc))
+                        pais[(nl, nc)] = (atualL, atualC)
+
         caminho = []
+        atual = (destinoL, destinoC)
+        while atual in pais:
+            caminho.append(atual)
+            atual = pais[atual]
+        caminho.append((linha, coluna))
+        caminho.reverse()
 
-        def dfs(linha, coluna, visitados):
-            if (linha, coluna) == destino:
-                caminho.append((linha, coluna))
-                return True
-
-            visitados.add((linha, coluna))
-            celula = self.matriz[linha][coluna]
-
-            for dLinha, dCol in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
-                nLinha, nCol = linha + dLinha, coluna + dCol
-                if 0 <= nLinha < self.qtLinhas and 0 <= nCol < self.qtColunas:
-                    vizinha = self.matriz[nLinha][nCol]
-                    if vizinha.aberta and (nLinha, nCol) not in visitados:
-                        if dfs(nLinha, nCol, visitados):
-                            caminho.append((linha, coluna))
-                            return True
-            return False
-
-        if dfs(1, 0, set()):
-            for l, c in caminho:
-                self.matriz[l][c].caminho = True
-        else:
-            print("Não há caminho do início até a saída!")
+        fim = time.time()
+        print(f"BFS - Caminho encontrado com {len(caminho)} passos em {fim - inicio:.4f} segundos.")
+        return caminho
 
 class Malha:
     def __init__(self, qtLinhas, qtColunas, aresta, celulaPadrao):
         self.qtLinhas = qtLinhas
         self.qtColunas = qtColunas
         self.aresta = aresta
-        self.celulaPadrao = celulaPadrao
-        self.matriz = self.GeraMatriz()
+        self.matriz = [[copy.deepcopy(celulaPadrao) for _ in range(qtColunas)] for _ in range(qtLinhas)]
 
     def __getitem__(self, index):
         return self.matriz[index]
 
-    def GeraMatriz(self):
-        return [[copy.deepcopy(self.celulaPadrao) for _ in range(self.qtColunas)] for _ in range(self.qtLinhas)]
-
-    def DesenhaLabirinto(self, tela, x, y):
+    def desenha_labirinto(self, tela, x, y):
         for linha in range(self.qtLinhas):
             for coluna in range(self.qtColunas):
                 self.matriz[linha][coluna].desenhar(tela, x + coluna * self.aresta, y + linha * self.aresta, self.aresta)
@@ -134,29 +147,42 @@ class Malha:
 def main():
     pygame.init()
 
-    azul = (50, 50, 255)
-    preto = (10, 10, 10)
-    branco = (255, 255, 255)
-    verde = (0, 255, 0)
-    cinza = (128, 128, 128)
+    vermelho = (255, 0, 0)
+    azul_claro = (100, 150, 255)
+    cinza_claro = (200, 200, 200)
+    cinza_escuro = (80, 80, 80)
 
-    largura, altura = 600, 600
-    N, M = 20, 20
+    largura, altura = 800, 800
+    N, M = 30, 30
     aresta = 20
 
-    celulaPadrao = Celula(ArestasFechadas(False, False, False, False), preto, cinza, preto, branco, False, False)
+    celulaPadrao = Celula(
+        ArestasFechadas(True, True, True, True),
+        azul_claro, cinza_claro, cinza_escuro, vermelho,
+        False, False
+    )
+
     labirinto = AldousBroder(N, M, aresta, celulaPadrao)
-    labirinto.GeraLabirinto()
-    labirinto.ResolveLabirinto()  # NOVO: resolve o labirinto
+    labirinto.gera_labirinto()
+
+    caminho = labirinto.resolver_bfs(1, 0, N - 1, M - 1)
+    for linha, coluna in caminho:
+        labirinto.matriz[linha][coluna].aberta = True
 
     tela = pygame.display.set_mode((largura, altura))
-    pygame.display.set_caption('Mostra Malha - v2.0')
+    pygame.display.set_caption('Labirinto Resolvido (BFS)')
 
     while True:
-        for
-        labirinto.matriz.DesenhaLabirinto(tela, offset_linha, offset_coluna)
+        for evento in pygame.event.get():
+            if evento.type == pygame.QUIT:
+                pygame.quit()
+                sys.exit()
+
+        tela.fill((255, 255, 255))
+        offsetX = (largura - (M * aresta)) // 2
+        offsetY = (altura - (N * aresta)) // 2
+        labirinto.matriz.desenha_labirinto(tela, offsetX, offsetY)
         pygame.display.flip()
 
 if __name__ == '__main__':
     main()
-
